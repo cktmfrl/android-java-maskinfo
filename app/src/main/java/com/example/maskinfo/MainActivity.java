@@ -2,8 +2,14 @@ package com.example.maskinfo;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.content.Context;
+import android.content.Intent;
 import android.graphics.Color;
+import android.location.Location;
+import android.location.LocationManager;
 import android.os.Bundle;
+import android.os.Looper;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.Menu;
@@ -15,6 +21,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -22,6 +29,9 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.maskinfo.model.Store;
 import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationCallback;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 import com.gun0912.tedpermission.PermissionListener;
 import com.gun0912.tedpermission.TedPermission;
@@ -36,6 +46,9 @@ public class MainActivity extends AppCompatActivity {
     private MainViewModel viewModel;
 
     private FusedLocationProviderClient fusedLocationClient;
+    private LocationCallback locationCallback;
+
+    private static final String[] REQUEST_PERMESSIONS = {Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION};
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,12 +74,38 @@ public class MainActivity extends AppCompatActivity {
         TedPermission.with(this)
                 .setPermissionListener(permissionlistener)
                 .setDeniedMessage("If you reject permission,you can not use this service\n\nPlease turn on permissions at [Setting] > [Permission]")
+                //.setPermissions(REQUEST_PERMESSIONS)
                 .setPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
                 .check();
     }
 
+    @Override
+    protected void onStop() {
+        super.onStop();
+        fusedLocationClient.removeLocationUpdates(locationCallback);
+    }
+
     @SuppressLint("MissingPermission")
     private void performAction() {
+        // 추가
+        final LocationManager locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+                && !locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+
+            AlertDialog.Builder localBuilder = new AlertDialog.Builder(this);
+            localBuilder.setTitle("위치 서비스 설정")
+                    .setMessage("위치 서비스 설정이 꺼져 있어 현재 위치를 확인할 수 없습니다. 설정을 변경하시겠습니까?")
+                    .setPositiveButton("설정", (dialogInterface, i) -> {
+                        startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)); // 위치정보 켜기 화면
+                    })
+                    .setNegativeButton("닫기", (dialogInterface, i) -> {})
+                    .create()
+                    .show();
+
+            return;
+        }
+
+        // 위치 정보 가져오기
         fusedLocationClient.getLastLocation()
                 .addOnFailureListener(this, e -> {
                     Log.e(TAG, "performAction: ", e.getCause());
@@ -78,10 +117,30 @@ public class MainActivity extends AppCompatActivity {
                         Log.d(TAG, "getLatitude: " + location.getLatitude());
                         Log.d(TAG, "getLongitude: " + location.getLongitude());
 
-                        location.setLatitude(37.188078);
-                        location.setLongitude(127.043002);
+                        //location.setLatitude(37.188078);
+                        //location.setLongitude(127.043002);
                         viewModel.location = location;
                         viewModel.fetchStoreInfo();
+                    } else {
+                        LocationRequest locationRequest = LocationRequest.create();
+                        //locationRequest.setInterval(10000);
+                        //locationRequest.setFastestInterval(5000);
+
+                        locationCallback = new LocationCallback() {
+                            @Override
+                            public void onLocationResult(LocationResult locationResult) {
+                                if (locationResult == null) {
+                                    return;
+                                }
+                                for (Location location : locationResult.getLocations()) {
+                                    viewModel.location = location;
+                                    viewModel.fetchStoreInfo();
+                                }
+                            }
+                        };
+
+                        // 위치 업데이트 요청
+                        fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper());
                     }
                 });
 
@@ -119,7 +178,8 @@ public class MainActivity extends AppCompatActivity {
         switch (item.getItemId()) {
             case R.id.action_refresh:
                 // 리프레시
-                viewModel.fetchStoreInfo();
+                //viewModel.fetchStoreInfo();
+                performAction();
                 return true;
             default:
                 return super.onOptionsItemSelected(item);
