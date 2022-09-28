@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.location.Location;
 import android.location.LocationManager;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Looper;
 import android.provider.Settings;
@@ -18,11 +19,13 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
-import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -33,11 +36,10 @@ import com.google.android.gms.location.LocationCallback;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
-import com.gun0912.tedpermission.PermissionListener;
-import com.gun0912.tedpermission.TedPermission;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -48,7 +50,37 @@ public class MainActivity extends AppCompatActivity {
     private FusedLocationProviderClient fusedLocationClient;
     private LocationCallback locationCallback;
 
-    private static final String[] REQUEST_PERMESSIONS = {Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION};
+    private ActivityResultLauncher<String[]> requestPermissionLauncher = registerForActivityResult(
+            new ActivityResultContracts.RequestMultiplePermissions(), result -> {
+                List<String> deniedList = new ArrayList<>();
+                for (Map.Entry<String, Boolean> entry : result.entrySet()) {
+                    if (!entry.getValue()) {
+                        deniedList.add(entry.getKey());
+                    }
+                }
+
+                if (!deniedList.isEmpty()) {
+                    for (String permission : deniedList) {
+                        if (!ActivityCompat.shouldShowRequestPermissionRationale(this, permission)) {
+                            AlertDialog.Builder localBuilder = new AlertDialog.Builder(this);
+                            localBuilder.setTitle("권한 설정")
+                                    .setMessage("권한을 거부할 경우 본 서비스를 이용하실 수 없습니다.\n\n[설정] > [권한]에서 권한을 켜주세요.")
+                                    .setPositiveButton("설정", (dialogInterface, i) -> {
+                                        startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); // 설정 화면
+                                    })
+                                    .setNegativeButton("닫기", (dialogInterface, i) -> {
+                                    })
+                                    .create()
+                                    .show();
+                        }
+                    }
+                    return;
+                }
+
+                // 모든 권한 승인 (All request are permitted)
+                performAction();
+            }
+    );
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -59,30 +91,23 @@ public class MainActivity extends AppCompatActivity {
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
 
-        PermissionListener permissionlistener = new PermissionListener() {
-            @Override
-            public void onPermissionGranted() {
-                performAction();
-            }
-
-            @Override
-            public void onPermissionDenied(List<String> deniedPermissions) {
-                Toast.makeText(MainActivity.this, "Permission Denied\n" + deniedPermissions.toString(), Toast.LENGTH_SHORT).show();
-            }
-        };
-
-        TedPermission.with(this)
-                .setPermissionListener(permissionlistener)
-                .setDeniedMessage("If you reject permission,you can not use this service\n\nPlease turn on permissions at [Setting] > [Permission]")
-                //.setPermissions(REQUEST_PERMESSIONS)
-                .setPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
-                .check();
+        checkPermissions();
     }
 
     @Override
     protected void onStop() {
         super.onStop();
-        fusedLocationClient.removeLocationUpdates(locationCallback);
+
+        if (locationCallback != null) {
+            fusedLocationClient.removeLocationUpdates(locationCallback);
+        }
+    }
+
+    private void checkPermissions() {
+        requestPermissionLauncher.launch(new String[]{
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.ACCESS_FINE_LOCATION
+        });
     }
 
     @SuppressLint("MissingPermission")
@@ -93,12 +118,13 @@ public class MainActivity extends AppCompatActivity {
                 && !locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
 
             AlertDialog.Builder localBuilder = new AlertDialog.Builder(this);
-            localBuilder.setTitle("위치 서비스 설정")
+            localBuilder.setTitle("위치 정보 설정") // ("위치 서비스 설정")
                     .setMessage("위치 서비스 설정이 꺼져 있어 현재 위치를 확인할 수 없습니다. 설정을 변경하시겠습니까?")
                     .setPositiveButton("설정", (dialogInterface, i) -> {
                         startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)); // 위치정보 켜기 화면
                     })
-                    .setNegativeButton("닫기", (dialogInterface, i) -> {})
+                    .setNegativeButton("닫기", (dialogInterface, i) -> {
+                    })
                     .create()
                     .show();
 
@@ -174,12 +200,9 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        // Handle item selection
         switch (item.getItemId()) {
             case R.id.action_refresh:
-                // 리프레시
-                //viewModel.fetchStoreInfo();
-                performAction();
+                checkPermissions();
                 return true;
             default:
                 return super.onOptionsItemSelected(item);
